@@ -7,7 +7,10 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   JWT_EXPIRES_IN: z.string().default('7d'),
-  CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  // Render's fromService injects a bare hostname; normalise to full URL
+  CORS_ORIGIN: z.string().default('http://localhost:5173').transform(
+    (v) => (v.startsWith('http') ? v : `https://${v}`)
+  ),
 });
 
 const parsed = envSchema.safeParse(process.env);
