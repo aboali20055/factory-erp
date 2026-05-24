@@ -1,0 +1,372 @@
+// prisma/schema.prisma
+// Factory ERP - PostgreSQL Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// USERS & AUTH
+// ─────────────────────────────────────────────
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         String   @default("STAFF") // ADMIN | MANAGER | STAFF | VIEWER
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────
+// PARTNERS (replaces hardcoded "حاتم" / "ميدو")
+// ─────────────────────────────────────────────
+
+model Partner {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  depositReceivedSales  Sale[]         @relation("DepositReceiver")
+  expenseCredits        ExpenseLine[]  @relation("ExpenseCreditPartner")
+  paymentLogs           PaymentLog[]
+  returnRefunds         ReturnItem[]
+
+  @@map("partners")
+}
+
+// ─────────────────────────────────────────────
+// INVENTORY — PRODUCTS / READY STOCK
+// ─────────────────────────────────────────────
+
+model ReadyStock {
+  id             Int      @id @default(autoincrement())
+  modelCode      String   @map("model_code")
+  productName    String   @map("product_name")
+  color          String
+  openingBalance Int      @default(0) @map("opening_balance")
+  costPerPiece   Decimal  @default(0) @map("cost_per_piece")
+  location       String?
+  deletedAt      DateTime? @map("deleted_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  saleItems SaleItem[]
+
+  @@unique([modelCode, color])
+  @@index([modelCode])
+  @@map("ready_stock")
+}
+
+// ─────────────────────────────────────────────
+// INVENTORY — FABRIC WAREHOUSE
+// ─────────────────────────────────────────────
+
+model FabricEntry {
+  id           Int      @id @default(autoincrement())
+  date         DateTime
+  materialType String   @map("material_type")
+  color        String
+  qtyIn        Decimal  @map("qty_in")
+  costPerKg    Decimal  @map("cost_per_kg")
+  notes        String?
+  deletedAt    DateTime? @map("deleted_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([materialType, color])
+  @@map("fabric_entries")
+}
+
+// ─────────────────────────────────────────────
+// INVENTORY — ACCESSORIES WAREHOUSE
+// ─────────────────────────────────────────────
+
+model AccessoryEntry {
+  id          Int      @id @default(autoincrement())
+  date        DateTime
+  itemName    String   @map("item_name")
+  qtyIn       Decimal  @map("qty_in")
+  qtyConsumed Decimal  @default(0) @map("qty_consumed")
+  cost        Decimal
+  notes       String?
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([itemName])
+  @@map("accessory_entries")
+}
+
+// ─────────────────────────────────────────────
+// PRODUCTION — CUTTING
+// ─────────────────────────────────────────────
+
+model CuttingOrder {
+  id              Int      @id @default(autoincrement())
+  date            DateTime
+  cutNumber       Int      @unique @map("cut_number")
+  cutDescription  String   @map("cut_description")
+  materialType    String   @map("material_type")
+  color           String
+  layersCount     Int      @map("layers_count")
+  spreadLengthM   Decimal  @map("spread_length_m")
+  totalPieces     Int      @map("total_pieces")
+  kgConsumed      Decimal  @map("kg_consumed")
+  notes           String?
+  deletedAt       DateTime? @map("deleted_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  modelProductions ModelProduction[]
+
+  @@index([cutNumber])
+  @@index([materialType, color])
+  @@map("cutting_orders")
+}
+
+// ─────────────────────────────────────────────
+// PRODUCTION — MODEL PRODUCTION
+// ─────────────────────────────────────────────
+
+model ModelProduction {
+  id                 Int      @id @default(autoincrement())
+  date               DateTime
+  cuttingOrderId     Int      @map("cutting_order_id")
+  modelCode          String   @map("model_code")
+  modelDescription   String   @map("model_description")
+  color              String
+  sizes              String?
+  qtyFromCutting     Int      @map("qty_from_cutting")
+  status             String   @default("IN_PROGRESS") // IN_PROGRESS | COMPLETED | DEFECTIVE
+  wastage            Int      @default(0)
+  qtyReceived        Int?     @map("qty_received")
+  warehouseEntryDate DateTime? @map("warehouse_entry_date")
+  notes              String?
+  deletedAt          DateTime? @map("deleted_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  cuttingOrder CuttingOrder @relation(fields: [cuttingOrderId], references: [id])
+
+  @@index([modelCode])
+  @@index([cuttingOrderId])
+  @@map("model_productions")
+}
+
+// ─────────────────────────────────────────────
+// SALES
+// ─────────────────────────────────────────────
+
+model Sale {
+  id                  Int      @id @default(autoincrement())
+  orderNumber         String   @unique @map("order_number")
+  rowNumber           Int      @map("row_number")
+  marketerId          Int?     @map("marketer_id")
+  marketerName        String   @map("marketer_name")
+  clientName          String   @map("client_name")
+  clientMobile        String?  @map("client_mobile")
+  invoiceValue        Decimal  @map("invoice_value")
+  depositPaid         Decimal  @default(0) @map("deposit_paid")
+  depositReceiverId   Int?     @map("deposit_receiver_id")
+  remaining           Decimal  @default(0)
+  shippingNumber      String?  @map("shipping_number")
+  shippingCollected   Decimal  @default(0) @map("shipping_collected")
+  orderStatus         String   @default("NOT_DISPATCHED") @map("order_status") // DISPATCHED | NOT_DISPATCHED | CLIENT_ACCOUNT
+  deliveryMethod      String?  @map("delivery_method")
+  warehouseLocation   String?  @map("warehouse_location")
+  notes               String?
+  deletedAt           DateTime? @map("deleted_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  depositReceiver Partner?   @relation("DepositReceiver", fields: [depositReceiverId], references: [id])
+  items           SaleItem[]
+  returns         ReturnItem[]
+  paymentLogs     PaymentLog[]
+
+  @@index([orderNumber])
+  @@index([orderStatus])
+  @@index([marketerName])
+  @@map("sales")
+}
+
+model SaleItem {
+  id           Int      @id @default(autoincrement())
+  saleId       Int      @map("sale_id")
+  readyStockId Int?     @map("ready_stock_id")
+  modelCode    String   @map("model_code")
+  modelName    String?  @map("model_name")
+  color        String
+  quantity     Int
+  unitPrice    Decimal? @map("unit_price")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  sale       Sale        @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  readyStock ReadyStock? @relation(fields: [readyStockId], references: [id])
+
+  @@index([saleId])
+  @@index([modelCode])
+  @@map("sale_items")
+}
+
+// ─────────────────────────────────────────────
+// RETURNS
+// ─────────────────────────────────────────────
+
+model ReturnItem {
+  id             Int      @id @default(autoincrement())
+  date           DateTime
+  saleId         Int?     @map("sale_id")
+  clientName     String   @map("client_name")
+  returnedById   Int?     @map("returned_by_id")
+  refundPaidById Int?     @map("refund_paid_by_id")
+  modelCode      String   @map("model_code")
+  modelColor     String   @map("model_color")
+  modelQty       Int      @map("model_qty")
+  refundAmount   Decimal  @map("refund_amount")
+  notes          String?
+  deletedAt      DateTime? @map("deleted_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  sale         Sale?    @relation(fields: [saleId], references: [id])
+  refundPaidBy Partner? @relation(fields: [refundPaidById], references: [id])
+
+  @@map("return_items")
+}
+
+// ─────────────────────────────────────────────
+// FINANCE — EXPENSES & REVENUES
+// ─────────────────────────────────────────────
+
+model ExpenseRecord {
+  id            Int      @id @default(autoincrement())
+  date          DateTime
+  operationType String   @map("operation_type") // CAPITAL | OPERATING_EXP | SALES_REVENUE | LOAN | REPAYMENT
+  statement     String
+  notes         String?
+  deletedAt     DateTime? @map("deleted_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  lines ExpenseLine[]
+
+  @@index([date])
+  @@index([operationType])
+  @@map("expense_records")
+}
+
+model ExpenseLine {
+  id              Int     @id @default(autoincrement())
+  expenseRecordId Int     @map("expense_record_id")
+  partnerId       Int     @map("partner_id")
+  amountIn        Decimal @default(0) @map("amount_in")
+  amountOut       Decimal @default(0) @map("amount_out")
+
+  expenseRecord ExpenseRecord @relation(fields: [expenseRecordId], references: [id], onDelete: Cascade)
+  partner       Partner       @relation("ExpenseCreditPartner", fields: [partnerId], references: [id])
+
+  @@map("expense_lines")
+}
+
+// ─────────────────────────────────────────────
+// FINANCE — DEBTS
+// ─────────────────────────────────────────────
+
+model Debt {
+  id          Int      @id @default(autoincrement())
+  date        DateTime
+  creditor    String
+  totalAmount Decimal  @map("total_amount")
+  amountPaid  Decimal  @default(0) @map("amount_paid")
+  remaining   Decimal
+  notes       String?
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  paymentLogs PaymentLog[]
+
+  @@map("debts")
+}
+
+// ─────────────────────────────────────────────
+// FINANCE — CLIENT ACCOUNTS
+// ─────────────────────────────────────────────
+
+model ClientAccount {
+  id          Int      @id @default(autoincrement())
+  date        DateTime
+  clientName  String   @map("client_name")
+  modelName   String   @map("model_name")
+  quantity    Int
+  totalAmount Decimal  @map("total_amount")
+  amountPaid  Decimal  @default(0) @map("amount_paid")
+  remaining   Decimal
+  notes       String?
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  paymentLogs PaymentLog[]
+
+  @@map("client_accounts")
+}
+
+// ─────────────────────────────────────────────
+// PAYMENT LOG
+// ─────────────────────────────────────────────
+
+model PaymentLog {
+  id              Int      @id @default(autoincrement())
+  date            DateTime
+  type            String   // CLIENT_PAYMENT | DEBT_PAYMENT
+  amount          Decimal
+  receivedById    Int?     @map("received_by_id")
+  saleId          Int?     @map("sale_id")
+  debtId          Int?     @map("debt_id")
+  clientAccountId Int?     @map("client_account_id")
+  description     String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  receivedBy    Partner?       @relation(fields: [receivedById], references: [id])
+  sale          Sale?          @relation(fields: [saleId], references: [id])
+  debt          Debt?          @relation(fields: [debtId], references: [id])
+  clientAccount ClientAccount? @relation(fields: [clientAccountId], references: [id])
+
+  @@map("payment_logs")
+}
+
+// ─────────────────────────────────────────────
+// AUDIT LOG
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @map("user_id")
+  action     String   // CREATE, UPDATE, DELETE
+  entity     String
+  entityId   Int      @map("entity_id")
+  oldValues  Json?    @map("old_values")
+  newValues  Json?    @map("new_values")
+  ipAddress  String?  @map("ip_address")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@map("audit_logs")
+}
